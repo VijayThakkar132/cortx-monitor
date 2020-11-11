@@ -107,6 +107,10 @@ class SSPLHealthView(object):
     node_interface_data = ['sas_port', 'network_cable']
     NW_CBL_CARRIER_FILE = "/sys/class/net/{}/carrier"
 
+    # Current Data Version
+    CURRENT_DATA_VERSION = 1
+    SAS_PORT_SENSOR_DATA = os.path.join(persistent_data_location + 'server', f'SAS_PORT_SENSOR_DATA_{NODE_ID}')
+
     encl_hw_specifics_api = 'configuration'
     ENCL_MANIFEST_PATH = '/tmp/encl_manifest.json'
     NODE_MANIFEST_PATH = '/tmp/node_manifest.json'
@@ -341,6 +345,7 @@ class SSPLHealthView(object):
             print('Required ipmitool missing on Node to fetch %s data..!' % category)
             return False
 
+        self._run_command(f"chown -R sspl-ll:sspl-ll /var/{PRODUCT_FAMILY}/sspl/")
         self.write_content_in_file(self.RESOURCE_HEALTH_VIEW_PATH, self._resource_health_view,
                                     'resource health view')
 
@@ -911,7 +916,6 @@ class SSPLHealthView(object):
 
     def build_node_os_instances(self):
         os_drives_data = self.get_node_os_drive_data()
-        self._run_command(f"chown -R sspl-ll:sspl-ll /var/{PRODUCT_FAMILY}/sspl/")
         return os_drives_data
 
     def get_node_os_drive_data(self):
@@ -981,6 +985,9 @@ class SSPLHealthView(object):
         utility_instance.initialize()
         sas_ports_dict = utility_instance.get_phy_negotiated_link_rate()
         sas_phy_dict = {}
+        sas_phy_stored_alert = {}
+        sas_phy_stored_alert['version'] = self.CURRENT_DATA_VERSION
+
         if sas_ports_dict:
             for key, value in sas_ports_dict.items():
                 link_rate = value.strip()
@@ -996,10 +1003,12 @@ class SSPLHealthView(object):
                 sas_hba_health = "OK"
                 sas_hba_severity = "NA"
                 sas_hba_alert_type = "NA"
+                sas_phy_stored_alert['conn'] = 'fault_resolved'
             else:
                 sas_hba_health = "Fault"
                 sas_hba_severity = "critical"
                 sas_hba_alert_type = "fault"
+                sas_phy_stored_alert['conn'] = 'fault'
 
             sas_port_data.update({
                 'sas_hbas':{
@@ -1025,10 +1034,12 @@ class SSPLHealthView(object):
                     sas_port_health = "OK"
                     sas_port_severity = "NA"
                     sas_port_alert_type = "NA"
+                    sas_phy_stored_alert[idx] = 'fault_resolved'
                 else:
                     sas_port_health = "Fault"
                     sas_port_severity = "critical"
                     sas_port_alert_type = "fault"
+                    sas_phy_stored_alert[idx] = 'fault'
                 sas_port_data['sas_ports'].update({
                     resource_type+':port-'+self.SAS_RESOURCE_ID+'-port-'+str(idx):{
                         "alert_type": sas_port_alert_type,
@@ -1039,6 +1050,11 @@ class SSPLHealthView(object):
                         "fetch_time" : int(time.time())
                     }
                 })
+
+            if file_store.get(self.SAS_PORT_SENSOR_DATA) is None:
+                print('Persistent cache does not exist, Building cache %s '\
+                    % self.SAS_PORT_SENSOR_DATA)
+                file_store.put(sas_phy_stored_alert, self.SAS_PORT_SENSOR_DATA)
 
         return sas_port_data
 
